@@ -2115,7 +2115,13 @@ STATIC void compile_namedexpr_helper(compiler_t *comp, mp_parse_node_t pn_name, 
     qstr arg = MP_PARSE_NODE_LEAF_ARG(pn_name);
     compile_node(comp, pn_expr);
     EMIT(dup_top);
+    scope_t *old_scope = comp->scope_cur;
+    if (SCOPE_LIST_COMP <= comp->scope_cur->kind && comp->scope_cur->kind <= SCOPE_GEN_EXPR) {
+        // Use parent's scope for assigned value so it can "escape"
+        comp->scope_cur = comp->scope_cur->parent;
+    }
     compile_store_id(comp, arg);
+    comp->scope_cur = old_scope;
 }
 
 STATIC void compile_namedexpr(compiler_t *comp, mp_parse_node_struct_t *pns) {
