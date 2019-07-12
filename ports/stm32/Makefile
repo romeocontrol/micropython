@@ -113,6 +113,7 @@ endif
 
 # Options for mpy-cross
 MPY_CROSS_FLAGS += -march=armv7m
+#MPY_CROSS_FLAGS += -mcache-lookup-bc
 
 SRC_LIB = $(addprefix lib/,\
 	libc/string0.c \
