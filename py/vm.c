@@ -111,20 +111,27 @@
 #if MICROPY_OPT_CACHE_MAP_LOOKUP_IN_BYTECODE
 // Inline caching
 #define USE_CACHE (1)
-#define CACHE_GET(ip) (*(ip))
-#define CACHE_PUT(ip, val) ((*(byte*)(ip)) = (val) & 0xff)
+#define CACHE_GET(ip, map, qst, key) (*(ip))
+#define CACHE_PUT(ip, map, qst, key, val) ((*(byte*)(ip)) = (val) & 0xff)
 #define CACHE_NEXT(ip) (++(ip))
 #elif MICROPY_OPT_VM_LOOKUP_CACHE_LEN
 // Global cache table
 #define USE_CACHE (1)
-#define CACHE_GET(ip) (MP_STATE_VM(vm_lookup_cache)[((uintptr_t)(ip)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN])
-#define CACHE_PUT(ip, val) do { MP_STATE_VM(vm_lookup_cache)[((uintptr_t)(ip)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN] = (val) & 0xff; } while (0)
-#define CACHE_NEXT(ip) do { } while (0)
+    #if 0
+    // index with ip
+    #define CACHE_GET(ip, map, qst, key) (MP_STATE_VM(vm_lookup_cache)[((uintptr_t)(ip)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN])
+    #define CACHE_PUT(ip, map, qst, key, val) do { MP_STATE_VM(vm_lookup_cache)[((uintptr_t)(ip)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN] = (val) & 0xff; } while (0)
+    #else
+    // index with map+qst
+    #define CACHE_GET(ip, map, qst, key) (MP_STATE_VM(vm_lookup_cache)[((uintptr_t)(map) + (uintptr_t)(qst)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN])
+    #define CACHE_PUT(ip, map, qst, key, val) do { MP_STATE_VM(vm_lookup_cache)[((uintptr_t)(map) + (uintptr_t)(qst)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN] = (val) & 0xff; } while (0)
+    #endif
+    #define CACHE_NEXT(ip) do { } while (0)
 #elif MICROPY_OPT_VM_LOOKUP_CACHE_LEN2
 // Per-function cache table
 #define USE_CACHE (1)
-#define CACHE_GET(ip) (code_state->fun_bc->lookup_cache[((uintptr_t)(ip)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN2])
-#define CACHE_PUT(ip, val) do { code_state->fun_bc->lookup_cache[((uintptr_t)(ip)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN2] = (val) & 0xff; } while (0)
+#define CACHE_GET(ip, map, qst, key) (code_state->fun_bc->lookup_cache[((uintptr_t)(ip)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN2])
+#define CACHE_PUT(ip, map, qst, key, val) do { code_state->fun_bc->lookup_cache[((uintptr_t)(ip)) % MICROPY_OPT_VM_LOOKUP_CACHE_LEN2] = (val) & 0xff; } while (0)
 #define CACHE_NEXT(ip) do { } while (0)
 #else
 // No caching
@@ -298,13 +305,13 @@ dispatch_loop:
                     MARK_EXC_IP_SELECTIVE();
                     DECODE_QSTR;
                     mp_obj_t key = MP_OBJ_NEW_QSTR(qst);
-                    size_t x = CACHE_GET(ip);
+                    size_t x = CACHE_GET(ip, &mp_locals_get()->map, qst, key);
                     if (x < mp_locals_get()->map.alloc && mp_locals_get()->map.table[x].key == key) {
                         PUSH(mp_locals_get()->map.table[x].value);
                     } else {
                         mp_map_elem_t *elem = mp_map_lookup(&mp_locals_get()->map, MP_OBJ_NEW_QSTR(qst), MP_MAP_LOOKUP);
                         if (elem != NULL) {
-                            CACHE_PUT(ip, elem - &mp_locals_get()->map.table[0]);
+                            CACHE_PUT(ip, &mp_locals_get()->map, qst, key, elem - &mp_locals_get()->map.table[0]);
                             PUSH(elem->value);
                         } else {
                             PUSH(mp_load_name(MP_OBJ_QSTR_VALUE(key)));
@@ -327,13 +334,13 @@ dispatch_loop:
                     MARK_EXC_IP_SELECTIVE();
                     DECODE_QSTR;
                     mp_obj_t key = MP_OBJ_NEW_QSTR(qst);
-                    size_t x = CACHE_GET(ip);
+                    size_t x = CACHE_GET(ip, &mp_globals_get()->map, qst, key);
                     if (x < mp_globals_get()->map.alloc && mp_globals_get()->map.table[x].key == key) {
                         PUSH(mp_globals_get()->map.table[x].value);
                     } else {
                         mp_map_elem_t *elem = mp_map_lookup(&mp_globals_get()->map, MP_OBJ_NEW_QSTR(qst), MP_MAP_LOOKUP);
                         if (elem != NULL) {
-                            CACHE_PUT(ip, elem - &mp_globals_get()->map.table[0]);
+                            CACHE_PUT(ip, &mp_globals_get()->map, qst, key, elem - &mp_globals_get()->map.table[0]);
                             PUSH(elem->value);
                         } else {
                             PUSH(mp_load_global(MP_OBJ_QSTR_VALUE(key)));
@@ -358,15 +365,15 @@ dispatch_loop:
                     mp_obj_t top = TOP();
                     if (mp_obj_is_instance_type(mp_obj_get_type(top))) {
                         mp_obj_instance_t *self = MP_OBJ_TO_PTR(top);
-                        size_t x = CACHE_GET(ip);
                         mp_obj_t key = MP_OBJ_NEW_QSTR(qst);
+                        size_t x = CACHE_GET(ip, &self->members, qst, key);
                         mp_map_elem_t *elem;
                         if (x < self->members.alloc && self->members.table[x].key == key) {
                             elem = &self->members.table[x];
                         } else {
                             elem = mp_map_lookup(&self->members, key, MP_MAP_LOOKUP);
                             if (elem != NULL) {
-                                CACHE_PUT(ip, elem - &self->members.table[0]);
+                                CACHE_PUT(ip, &self->members, qst, key, elem - &self->members.table[0]);
                             } else {
                                 goto load_attr_cache_fail;
                             }
@@ -456,15 +463,15 @@ dispatch_loop:
                     mp_obj_t top = TOP();
                     if (mp_obj_is_instance_type(mp_obj_get_type(top)) && sp[-1] != MP_OBJ_NULL) {
                         mp_obj_instance_t *self = MP_OBJ_TO_PTR(top);
-                        size_t x = CACHE_GET(ip);
                         mp_obj_t key = MP_OBJ_NEW_QSTR(qst);
+                        size_t x = CACHE_GET(ip, &self->members, qst, key);
                         mp_map_elem_t *elem;
                         if (x < self->members.alloc && self->members.table[x].key == key) {
                             elem = &self->members.table[x];
                         } else {
                             elem = mp_map_lookup(&self->members, key, MP_MAP_LOOKUP);
                             if (elem != NULL) {
-                                CACHE_PUT(ip, elem - &self->members.table[0]);
+                                CACHE_PUT(ip, &self->members, qst, key, elem - &self->members.table[0]);
                             } else {
                                 goto store_attr_cache_fail;
                             }
