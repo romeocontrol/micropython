@@ -76,7 +76,10 @@ int pyexec_exec_src(const void *source, mp_parse_input_kind_t input_kind, int ex
     uint32_t start = 0;
 
     // by default a SystemExit exception returns 0
-    pyexec_system_exit = 0;
+    #ifndef MICROPY_PYEXEC_DEFAULT_SYSTEM_EXIT
+    #define MICROPY_PYEXEC_DEFAULT_SYSTEM_EXIT (0)
+    #endif
+    pyexec_system_exit = MICROPY_PYEXEC_DEFAULT_SYSTEM_EXIT;
 
     nlr_buf_t nlr;
     if (nlr_push(&nlr) == 0) {
