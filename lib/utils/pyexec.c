@@ -47,6 +47,25 @@ pyexec_mode_kind_t pyexec_mode_kind = PYEXEC_MODE_FRIENDLY_REPL;
 int pyexec_system_exit = 0;
 STATIC bool repl_display_debugging_info = 0;
 
+// If exc is SystemExit, return pyexec_system_exit or'd with lower 8 bits of SystemExit value.
+// For all other exceptions, return 0.
+STATIC int pyexec_handle_uncaught_exception(mp_obj_base_t *exc) {
+    // check for SystemExit
+    if (mp_obj_is_subclass_fast(MP_OBJ_FROM_PTR(exc->type), MP_OBJ_FROM_PTR(&mp_type_SystemExit))) {
+        // None is an exit value of 0; an int is its value; anything else is 1
+        mp_obj_t exit_val = mp_obj_exception_get_value(MP_OBJ_FROM_PTR(exc));
+        mp_int_t val = 0;
+        if (exit_val != mp_const_none && !mp_obj_get_int_maybe(exit_val, &val)) {
+            val = 1;
+        }
+        return pyexec_system_exit | (val & 255);
+    } else {
+        // Report all other exceptions
+        mp_obj_print_exception(&mp_stderr_print, MP_OBJ_FROM_PTR(exc));
+        return 0;
+    }
+}
+
 // parses, compiles and executes the code in the lexer
 // frees the lexer before returning
 // PYEXEC_FLAG_PRINT_EOF prints 2 EOF chars: 1 after normal output, 1 after exception output
@@ -74,6 +93,12 @@ int pyexec_exec_src(const void *source, mp_parse_input_kind_t input_kind, int ex
             if (exec_flags & PYEXEC_FLAG_SOURCE_IS_VSTR) {
                 const vstr_t *vstr = source;
                 lex = mp_lexer_new_from_str_len(MP_QSTR__lt_stdin_gt_, vstr->buf, vstr->len, 0);
+            } else if (exec_flags & PYEXEC_FLAG_SOURCE_IS_STR) {
+                const char *line = source;
+                lex = mp_lexer_new_from_str_len(MP_QSTR__lt_stdin_gt_, line, strlen(line), false);
+            } else if (exec_flags & PYEXEC_FLAG_SOURCE_IS_FD) {
+                int fd = (int)(intptr_t)source;
+                lex = mp_lexer_new_from_fd(MP_QSTR__lt_stdin_gt_, fd, false);
             } else if (exec_flags & PYEXEC_FLAG_SOURCE_IS_FILENAME) {
                 lex = mp_lexer_new_from_file(source);
             } else {
@@ -81,7 +106,20 @@ int pyexec_exec_src(const void *source, mp_parse_input_kind_t input_kind, int ex
             }
             // source is a lexer, parse and compile the script
             qstr source_name = lex->source_name;
+            #if MICROPY_PY___FILE__
+            if (input_kind == MP_PARSE_FILE_INPUT) {
+                mp_store_global(MP_QSTR___file__, MP_OBJ_NEW_QSTR(source_name));
+            }
+            #endif
             mp_parse_tree_t parse_tree = mp_parse(lex, input_kind);
+            #if defined(MICROPY_UNIX_COVERAGE)
+            // allow to print the parse tree in the coverage build
+            if (mp_verbose_flag >= 3) {
+                printf("----------------\n");
+                mp_parse_node_print(parse_tree.root, 0);
+                printf("----------------\n");
+            }
+            #endif
             module_fun = mp_compile(&parse_tree, source_name, exec_flags & PYEXEC_FLAG_IS_REPL);
             #else
             mp_raise_msg(&mp_type_RuntimeError, "script compilation not supported");
@@ -89,10 +127,19 @@ int pyexec_exec_src(const void *source, mp_parse_input_kind_t input_kind, int ex
         }
 
         // execute code
-        mp_hal_set_interrupt_char(CHAR_CTRL_C); // allow ctrl-C to interrupt us
-        start = mp_hal_ticks_ms();
-        mp_call_function_0(module_fun);
-        mp_hal_set_interrupt_char(-1); // disable interrupt
+        if (!(exec_flags & PYEXEC_FLAG_COMPILE_ONLY)) {
+            mp_hal_set_interrupt_char(CHAR_CTRL_C); // allow ctrl-C to interrupt us
+            start = mp_hal_ticks_ms();
+            mp_call_function_0(module_fun);
+            // check for pending exception
+            if (MP_STATE_VM(mp_pending_exception) != MP_OBJ_NULL) {
+                mp_obj_t obj = MP_STATE_VM(mp_pending_exception);
+                MP_STATE_VM(mp_pending_exception) = MP_OBJ_NULL;
+                nlr_raise(obj);
+            }
+            mp_hal_set_interrupt_char(-1); // disable interrupt
+        }
+
         nlr_pop();
         ret = 1;
         if (exec_flags & PYEXEC_FLAG_PRINT_EOF) {
@@ -106,14 +153,7 @@ int pyexec_exec_src(const void *source, mp_parse_input_kind_t input_kind, int ex
         if (exec_flags & PYEXEC_FLAG_PRINT_EOF) {
             mp_hal_stdout_tx_strn("\x04", 1);
         }
-        // check for SystemExit
-        if (mp_obj_is_subclass_fast(MP_OBJ_FROM_PTR(((mp_obj_base_t*)nlr.ret_val)->type), MP_OBJ_FROM_PTR(&mp_type_SystemExit))) {
-            // at the moment, the value of SystemExit is unused
-            ret = pyexec_system_exit;
-        } else {
-            mp_obj_print_exception(&mp_plat_print, MP_OBJ_FROM_PTR(nlr.ret_val));
-            ret = 0;
-        }
+        ret = pyexec_handle_uncaught_exception(nlr.ret_val);
     }
 
     // display debugging info if wanted
