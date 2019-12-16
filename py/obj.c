@@ -46,6 +46,8 @@ mp_obj_type_t *mp_obj_get_type(mp_const_obj_t o_in) {
     } else if (mp_obj_is_float(o_in)) {
         return (mp_obj_type_t*)&mp_type_float;
     #endif
+    } else if (o_in == MP_OBJ_NONE) {
+        return (mp_obj_type_t*)&mp_type_NoneType;
     } else {
         const mp_obj_base_t *o = MP_OBJ_TO_PTR(o_in);
         return (mp_obj_type_t*)o->type;

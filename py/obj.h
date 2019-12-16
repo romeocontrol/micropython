@@ -75,6 +75,8 @@ typedef struct _mp_obj_base_t mp_obj_base_t;
 #define MP_OBJ_SENTINEL         (MP_OBJ_FROM_PTR((void*)4))
 #endif
 
+#define MP_OBJ_NONE             (MP_OBJ_FROM_PTR((void*)0x0006))
+
 // These macros/inline functions operate on objects and depend on the
 // particular object representation.  They are used to query, pack and
 // unpack small ints, qstrs and full object pointers.
@@ -215,6 +217,7 @@ static inline bool mp_obj_is_obj(mp_const_obj_t o)
 
 // rom object storage needs special handling to widen 32-bit pointer to 64-bits
 typedef union _mp_rom_obj_t { uint64_t u64; struct { const void *lo, *hi; } u32; } mp_rom_obj_t;
+#define MP_ROM_NONE {MP_OBJ_NONE}
 #define MP_ROM_INT(i) {MP_OBJ_NEW_SMALL_INT(i)}
 #define MP_ROM_QSTR(q) {MP_OBJ_NEW_QSTR(q)}
 #if MP_ENDIANNESS_LITTLE
@@ -243,7 +246,7 @@ typedef union _mp_rom_obj_t { uint64_t u64; struct { const void *lo, *hi; } u32;
 // Macros to create objects that are stored in ROM.
 
 #ifndef MP_ROM_NONE
-#define MP_ROM_NONE MP_ROM_PTR(&mp_const_none_obj)
+#define MP_ROM_NONE MP_OBJ_NONE
 #endif
 
 #ifndef MP_ROM_FALSE
@@ -613,13 +616,12 @@ extern const mp_obj_type_t mp_type_ZeroDivisionError;
 
 // Constant objects, globally accessible
 // The macros are for convenience only
-#define mp_const_none (MP_OBJ_FROM_PTR(&mp_const_none_obj))
+#define mp_const_none MP_OBJ_NONE
 #define mp_const_false (MP_OBJ_FROM_PTR(&mp_const_false_obj))
 #define mp_const_true (MP_OBJ_FROM_PTR(&mp_const_true_obj))
 #define mp_const_empty_bytes (MP_OBJ_FROM_PTR(&mp_const_empty_bytes_obj))
 #define mp_const_empty_tuple (MP_OBJ_FROM_PTR(&mp_const_empty_tuple_obj))
 #define mp_const_notimplemented (MP_OBJ_FROM_PTR(&mp_const_notimplemented_obj))
-extern const struct _mp_obj_none_t mp_const_none_obj;
 extern const struct _mp_obj_bool_t mp_const_false_obj;
 extern const struct _mp_obj_bool_t mp_const_true_obj;
 extern const struct _mp_obj_str_t mp_const_empty_bytes_obj;

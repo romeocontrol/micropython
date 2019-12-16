@@ -28,10 +28,6 @@
 
 #include "py/obj.h"
 
-typedef struct _mp_obj_none_t {
-    mp_obj_base_t base;
-} mp_obj_none_t;
-
 STATIC void none_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
     (void)self_in;
     if (MICROPY_PY_UJSON && kind == PRINT_JSON) {
@@ -47,5 +43,3 @@ const mp_obj_type_t mp_type_NoneType = {
     .print = none_print,
     .unary_op = mp_generic_unary_op,
 };
-
-const mp_obj_none_t mp_const_none_obj = {{&mp_type_NoneType}};
