@@ -70,7 +70,8 @@
 
 // A MicroPython object is a machine word having the following form:
 //  - xxxx...xxx1 : a small int, bits 1 and above are the value
-//  - xxxx...xx10 : a qstr, bits 2 and above are the value
+//  - xxxx...x010 : a qstr, bits 3 and above are the value
+//  - xxxx...x110 : a singleton, bits 3 and above are the value
 //  - xxxx...xx00 : a pointer to an mp_obj_base_t (unless a fake object)
 #define MICROPY_OBJ_REPR_A (0)
 
